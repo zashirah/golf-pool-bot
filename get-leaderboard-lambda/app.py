@@ -1,24 +1,32 @@
-from doctest import script_from_examples
+from awswrangler import s3 as wrs3
+import datetime
 import pandas as pd
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.options import Options as ChromeOptions
 
-def set_chrome_options() -> None:
-    """Sets chrome options for Selenium.
-    Chrome options for headless browser is enabled.
-    """
-    chrome_options = Options()
-    chrome_options.add_argument("--headless")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_prefs = {}
-    chrome_options.experimental_options["prefs"] = chrome_prefs
-    chrome_prefs["profile.default_content_settings"] = {"images": 2}
-    return chrome_options
+BROWSER = "Chrome"
+BROWSER_VERSION = '88.0.4324.150'
+DRIVER_VERSION = '88.0.4324.96'
 
-chrome_options = set_chrome_options()
-driver = webdriver.Chrome(options=chrome_options)
+chrome_options = ChromeOptions()
+chrome_options.add_argument('--headless')
+chrome_options.add_argument("--no-sandbox")
+chrome_options.add_argument("--disable-dev-shm-usage")
+chrome_options.add_argument("--disable-gpu")
+chrome_options.add_argument("--disable-dev-tools")
+chrome_options.add_argument("--no-zygote")
+chrome_options.add_argument("--single-process")
+chrome_options.add_argument("window-size=2560x1440")
+chrome_options.add_argument("--user-data-dir=/tmp/chrome-user-data")
+chrome_options.add_argument("--remote-debugging-port=9222")
+chrome_options.binary_location = '/opt/chrome/' + BROWSER_VERSION + '/chrome'
+driver = webdriver.Chrome(executable_path='/opt/chromedriver/' + DRIVER_VERSION + '/chromedriver',
+                          options=chrome_options,
+                          service_log_path='/tmp/chromedriver.log')
+if driver:
+    print('Started Chrome Driver')
+
 
 def connect_to_url(url):
     return driver.get(url)
@@ -45,6 +53,7 @@ def get_scoreboard_dict(trs):
           player_score['round2'] = tds[3].text
           player_score['round3'] = tds[4].text
           player_score['round4'] = tds[5].text
+          player_score['make_cut'] = tds[6].text != 'MC'
       
           scoreboard.append(player_score)
           
@@ -70,7 +79,9 @@ def clean_up_distributor(score, par):
     if isinstance(score, int):
         return score
     elif score == 'E':
-        return convert_even()
+        return convert_even()  
+    elif score == '-':
+      return 0
     elif '+' in score or '-' in score:
         return int(score)
     elif score == ' ':
@@ -100,29 +111,40 @@ def clean_df(df, par):
   return df
 
 
-def main():
-  par = 71
+def get_timestamp():
+  return datetime.datetime.now()
+
+
+def write_to_s3(df):
+  timestamp = get_timestamp()
+  wrs3.to_csv(df, f's3://golf-bot-leaderboard/TheMasters/leaderboard-{timestamp}.csv')
+
+
+def lambda_handler(event, context):
+  par = 72
 
   url = 'https://scores.nbcsports.com/golf/final.asp?tour=PGA'
   connect_to_url(url)
+  print('connecting to url')
 
   table = get_scoreboard_table()
+  print('get table data')
 
   trs = get_table_rows(table)
+  print('get table rows')
 
   scoreboard = get_scoreboard_dict(trs)
+  print('get scoreboard')
 
   df = convert_scoreboard_to_df(scoreboard)
+  print(df)
 
   df = clean_df(df, par)
+  print(f'cleaned {df}')
 
-  df.to_csv('Valspar_Championship.csv')
-
-
-if __name__ == '__main__':
-  main()
+  write_to_s3(df)
+  print('written to s3')
 
 
-
-
-
+# if __name__ == '__main__':
+  # main()

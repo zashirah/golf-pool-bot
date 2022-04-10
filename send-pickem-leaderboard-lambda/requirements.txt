@@ -1,0 +1,5 @@
+awswrangler
+pandas
+dataframe_image
+requests
+awslambdaric
